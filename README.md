@@ -5,8 +5,7 @@ Keychain, encrypted files or an encrypted database, binds keys to the right prot
 when the device cannot provide the protection you asked for.
 
 Works from **Swift** (async/await), **Objective-C** (completion blocks, `NSError`) and **SwiftUI**
-(`@SecureStorage`, `BiometricGate`). The spec is [docs/SecureVault_PRD.md](docs/SecureVault_PRD.md)
-(also as [Word](docs/SecureVault_PRD_v1.0.docx)).
+(`@SecureStorage`, `BiometricGate`). The spec is [docs/SecureVault_PRD.md](docs/SecureVault_PRD.md).
 
 - Version 1.0.2 (build 3): `SecureVault.version` / `SecureVault.build`, or `SVVault.sdkVersion` / `SVVault.sdkBuild` in Objective-C
 - iOS 15+, Mac Catalyst 15+, macOS 12+ · Swift 6 language mode · Xcode 16+
@@ -211,13 +210,5 @@ Check the pod with `pod lib lint SecureVault.podspec --allow-warnings`.
 
 ## Specification
 
-The PRD lives in [`docs/`](docs/) in two formats built from one source, so they never drift:
-
-- [SecureVault_PRD.md](docs/SecureVault_PRD.md): read it on GitHub; changes show up in pull-request diffs.
-- [SecureVault_PRD_v1.0.docx](docs/SecureVault_PRD_v1.0.docx): for sharing outside the repo.
-
-To change the spec, edit `Scripts/prd/build-prd.js` and regenerate both files:
-
-```bash
-cd Scripts/prd && npm install && npm run build
-```
+The product spec is [docs/SecureVault_PRD.md](docs/SecureVault_PRD.md). Edit it directly; changes show up in
+pull-request diffs.
