@@ -13,10 +13,18 @@ import SecureVaultCore
 /// The data-protection Keychain (PRD §12). Blocking Security calls run on a dedicated queue.
 public final class SystemKeychain: KeychainBackend {
     public let accessGroup: String?
+    /// Always `true` in apps. Tests on macOS turn it off to reach the login keychain, which needs no entitlement.
+    let usesDataProtectionKeychain: Bool
     private let queue = DispatchQueue(label: "com.securevault.keychain", qos: .userInitiated, attributes: .concurrent)
 
     public init(accessGroup: String? = nil) {
         self.accessGroup = accessGroup
+        self.usesDataProtectionKeychain = true
+    }
+
+    init(accessGroup: String? = nil, usesDataProtectionKeychain: Bool) {
+        self.accessGroup = accessGroup
+        self.usesDataProtectionKeychain = usesDataProtectionKeychain
     }
 
     public func set(_ data: Data, service: String, account: String, options: KeychainWriteOptions) async throws {
@@ -115,7 +123,7 @@ public final class SystemKeychain: KeychainBackend {
     private func baseQuery(service: String?, account: String?) -> [CFString: Any] {
         var query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
-            kSecUseDataProtectionKeychain: true,
+            kSecUseDataProtectionKeychain: usesDataProtectionKeychain,
         ]
         if let service { query[kSecAttrService] = service }
         if let account { query[kSecAttrAccount] = account }

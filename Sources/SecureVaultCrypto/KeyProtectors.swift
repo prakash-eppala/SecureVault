@@ -16,10 +16,8 @@ enum ECIES {
         let ephemeral = P256.KeyAgreement.PrivateKey()
         let shared = try ephemeral.sharedSecretFromKeyAgreement(with: recipient)
         let wrappingKey = derive(shared, ephemeral: ephemeral.publicKey, context: context)
-        guard let box = try AES.GCM.seal(key, using: wrappingKey, authenticating: context).combined else {
-            throw SecureVaultError.encryptionFailed
-        }
-        return ephemeral.publicKey.x963Representation + box
+        let box = try AES.GCM.seal(key, using: wrappingKey, authenticating: context)
+        return ephemeral.publicKey.x963Representation + Data(box.nonce) + box.ciphertext + box.tag
     }
 
     static func unwrap(_ wrapped: Data, agree: (P256.KeyAgreement.PublicKey) throws -> SharedSecret, context: Data) throws -> Data {

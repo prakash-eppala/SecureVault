@@ -8,14 +8,14 @@ Works from **Swift** (async/await), **Objective-C** (completion blocks, `NSError
 (`@SecureStorage`, `BiometricGate`). The spec is [docs/SecureVault_PRD.md](docs/SecureVault_PRD.md)
 (also as [Word](docs/SecureVault_PRD_v1.0.docx)).
 
-- Version 1.0.0 (build 1)
+- Version 1.0.1 (build 2): `SecureVault.version` / `SecureVault.build`, or `SVVault.sdkVersion` / `SVVault.sdkBuild` in Objective-C
 - iOS 15+, Mac Catalyst 15+, macOS 12+ · Swift 6 language mode · Xcode 16+
 - No third-party dependencies: Keychain, CryptoKit, Secure Enclave, LocalAuthentication, system SQLite
 
 ## Install
 
 ```swift
-.package(url: "<repository URL>", from: "1.0.0")
+.package(url: "<repository URL>", from: "1.0.1")
 ```
 
 One product, `SecureVault`, serves every kind of app:
@@ -62,14 +62,14 @@ let pin: String = try await vault.retrieve(forKey: "cardPIN", namespace: .financ
 | `.standard`, `.preference` | Standard | encrypted file | after first unlock | yes |
 | `.sensitive` (default) | Sensitive | encrypted file | after first unlock | no |
 | `.accessToken`, `.refreshToken`, `.session`, `.secret` | Secret | Keychain (≤ 4 KB) | after first unlock | no |
-| `.credential` | Secret | Keychain | when unlocked | no |
+| `.credential` | Secret | Keychain (≤ 4 KB) | when unlocked | no |
 | `.otp` | Secret | Keychain, expires in 5 min | after first unlock | no |
 | `.highlySensitive` | Highly Sensitive | encrypted file, passcode required | when unlocked | never |
 | `.biometric` | Biometric | Keychain, Face ID / Touch ID | when passcode set | never |
 
 Modifiers compose: `.accessToken.expiring(after: 3600)`, `.sensitive.allowingBackup()`,
 `.secret.stored(in: .encryptedFile)`, `.secret.requiringUserAuthentication(.userPresence)`.
-A policy that cannot be met throws `securityPolicyViolation`. It never falls back to something weaker.
+A policy that cannot be met throws `securityPolicyViolation` (or `biometryNotAvailable` when required biometry is missing). It never falls back to something weaker.
 
 ### Migration, rotation, recovery
 
@@ -79,7 +79,7 @@ let report = await vault.migrate([
     .keychain(service: "com.acme.legacy", account: "refresh", to: "refreshToken", namespace: .auth, policy: .refreshToken),
 ])                                                   // source deleted only after a verified read-back
 
-try await vault.rotateKeys()                          // crash-safe; re-run completePendingRotations() after a crash
+try await vault.rotateKeys()                          // crash-safe; after a crash, run it again (or completePendingRotations() for key-value items)
 try await vault.purgeUnreadableItems()                // after a restore to a new device (keyUnavailable)
 let posture = await vault.securityReport()            // never contains values or key names
 ```
@@ -100,12 +100,14 @@ SVPolicy *policy = [SVPolicy.accessToken copy];
 policy.expiresAfter = 3600;
 
 [vault databaseNamed:@"medical" policy:SVPolicy.highlySensitive completion:^(SVDatabase *db, NSError *error) {
-    [db putRecord:@{@"name": @"Asha", @"age": @41} withID:@"p1" type:@"Patient" completion:nil];
+    NSString *patientID = NSUUID.UUID.UUIDString;
+    [db putRecord:@{@"id": patientID, @"name": @"Asha", @"age": @41} withID:patientID type:@"Patient" completion:nil];
 }];
 ```
 
 Strings, data and numbers use the same encoding as Swift, so values cross languages freely. A record put from
-Objective-C with type `@"Patient"` reads in Swift as `Patient` (its `recordType`).
+Objective-C with type `@"Patient"` reads in Swift as `Patient` (its `recordType`) when the dictionary holds every
+field, including `id`, and `withID:` matches the Swift id.
 
 ## SwiftUI
 
@@ -139,10 +141,20 @@ in-memory Keychain as critical.
 swift test
 ```
 
-Runs 69 Swift tests (on macOS, 67 run and the 2 real-Keychain tests skip) covering policy rules R1–R10, envelope tampering, expiry, namespaces, rotation and interrupted rotation,
-database, streaming files, migration and concurrency, plus 7 Objective-C XCTests. The real-Keychain tests skip
-themselves on macOS and in a hostless iOS Simulator bundle, because neither has a Keychain entitlement; run them
-from a host app on the Simulator.
+Runs 148 Swift tests and 7 Objective-C XCTests covering every public API in Swift, Objective-C and SwiftUI: policy
+rules R1–R10, envelope and file tampering (flipped, truncated and reordered chunks), expiry, namespaces, rotation and
+interrupted rotation, databases, streaming files, migration, biometrics (with a stubbed `LAContext`, so no prompt
+appears), SwiftUI views hosted in `NSHostingView`, and concurrency. `SystemKeychain` runs against the macOS login
+keychain under unique test services that are deleted afterwards.
+
+Line coverage is 98.7% (regions 95.6%). To see it:
+
+```bash
+swift test --enable-code-coverage
+```
+
+The few uncovered lines need a real Face ID / Touch ID prompt or a hardware failure. Tests against the
+data-protection Keychain skip themselves without a Keychain entitlement; run them from a host app.
 
 ## Security notes
 
@@ -161,8 +173,8 @@ The PRD lives in [`docs/`](docs/) in two formats built from one source, so they 
 - [SecureVault_PRD.md](docs/SecureVault_PRD.md): read it on GitHub; changes show up in pull-request diffs.
 - [SecureVault_PRD_v1.0.docx](docs/SecureVault_PRD_v1.0.docx): for sharing outside the repo.
 
-To change the spec, edit `docs/tools/build-prd.js` and regenerate both files:
+To change the spec, edit `Scripts/prd/build-prd.js` and regenerate both files:
 
 ```bash
-cd docs/tools && npm install && npm run build
+cd Scripts/prd && npm install && npm run build
 ```

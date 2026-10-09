@@ -54,11 +54,10 @@ import Foundation
     @objc(setNumber:forKey:namespace:policy:completion:)
     public func set(_ number: NSNumber, forKey key: String, namespace: String?, policy: SVPolicy?, completion: (@Sendable (NSError?) -> Void)?) {
         let target = Self.namespace(namespace), resolved = Self.policy(policy)
-        let json: Data
-        do {
-            json = try JSONSerialization.data(withJSONObject: number, options: .fragmentsAllowed)
-        } catch {
-            deliver(completion) { throw SecureVaultError.invalidData(reason: "number does not encode") }
+        // JSONSerialization raises an Objective-C exception for NaN and infinity, so reject them first.
+        guard number.doubleValue.isFinite,
+              let json = try? JSONSerialization.data(withJSONObject: number, options: .fragmentsAllowed) else {
+            deliver(completion) { throw SecureVaultError.invalidData(reason: "number does not encode as JSON") }
             return
         }
         deliver(completion) { try await self.vault.storeEncoded(json, forKey: key, namespace: target, policy: resolved) }

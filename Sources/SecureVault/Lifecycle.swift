@@ -12,16 +12,16 @@ import SecureVaultDatabase
 /// One-time setup (reinstall handling) and the registry of open databases.
 actor VaultLifecycle {
     private let root: URL
-    private let servicePrefix: String
+    private let vaultID: String
     private let keychain: any KeychainBackend
     private let resetOnReinstall: Bool
     private let log: VaultLog
     private var preparation: Task<Void, any Error>?
     private var databases: [String: SecureDatabase] = [:]
 
-    init(root: URL, servicePrefix: String, keychain: any KeychainBackend, resetOnReinstall: Bool, log: VaultLog) {
+    init(root: URL, vaultID: String, keychain: any KeychainBackend, resetOnReinstall: Bool, log: VaultLog) {
         self.root = root
-        self.servicePrefix = servicePrefix
+        self.vaultID = vaultID
         self.keychain = keychain
         self.resetOnReinstall = resetOnReinstall
         self.log = log
@@ -33,11 +33,11 @@ actor VaultLifecycle {
     /// install are deleted before anything else touches them.
     func prepare() async throws {
         if let preparation { return try await preparation.value }
-        let task = Task { [root, marker, servicePrefix, keychain, resetOnReinstall, log] in
+        let task = Task { [root, marker, vaultID, keychain, resetOnReinstall, log] in
             let fileManager = FileManager.default
             if !fileManager.fileExists(atPath: marker.path) {
                 if resetOnReinstall {
-                    let stale = try await keychain.services(withPrefix: servicePrefix)
+                    let stale = try await Self.ownedServices(vaultID: vaultID, keychain: keychain)
                     for service in stale { try await keychain.deleteAll(service: service) }
                     if !stale.isEmpty { log.warning("removed Keychain items from a previous install") }
                 }
@@ -56,6 +56,15 @@ actor VaultLifecycle {
             preparation = nil
             throw error
         }
+    }
+
+    /// The Keychain services SecureVault writes: `<vaultID>.keys` and `<vaultID>.kv.<namespace>`.
+    /// Other items that happen to share the prefix (for example legacy items waiting for migration) are never touched.
+    static func ownedServices(vaultID: String, keychain: any KeychainBackend) async throws -> [String] {
+        let keys = "\(vaultID).keys"
+        let values = try await keychain.services(withPrefix: "\(vaultID).kv.")
+        let keyServices = try await keychain.services(withPrefix: keys).filter { $0 == keys }
+        return keyServices + values
     }
 
     /// Forces `prepare()` to run again, e.g. after `reset()` removed the directory.
@@ -77,19 +86,22 @@ actor VaultLifecycle {
     func closeAll() async {
         for database in databases.values { await database.close() }
     }
+
+    /// Closes only the databases whose files become unreadable when the device locks.
+    func closeForDeviceLock() async {
+        for database in databases.values where database.closesWhenDeviceLocks { await database.close() }
+    }
 }
 
 /// Clears when-unlocked keys and closes databases when the device locks (PRD §17.4, §33).
 final class ProtectedDataObserver: @unchecked Sendable {
     private var token: (any NSObjectProtocol)?
 
-    init(onLock: @escaping @Sendable () -> Void) {
-        #if os(iOS)
-        token = NotificationCenter.default.addObserver(
-            forName: Notification.Name("UIApplicationProtectedDataWillBecomeUnavailable"),
-            object: nil, queue: nil
-        ) { _ in onLock() }
-        #endif
+    /// Posted by UIKit on iOS and Mac Catalyst. Never posted on macOS, where observing it is harmless.
+    static let protectedDataWillBecomeUnavailable = Notification.Name("UIApplicationProtectedDataWillBecomeUnavailable")
+
+    init(name: Notification.Name = protectedDataWillBecomeUnavailable, onLock: @escaping @Sendable () -> Void) {
+        token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in onLock() }
     }
 
     deinit {

@@ -61,20 +61,18 @@ public final class SecureVault: Sendable {
         self.keys = keys
         self.objects = EncryptedObjectStore(root: root.appendingPathComponent("objects", isDirectory: true), vaultID: configuration.identifier)
         let lifecycle = VaultLifecycle(
-            root: root, servicePrefix: "\(configuration.identifier).", keychain: keychain,
+            root: root, vaultID: configuration.identifier, keychain: keychain,
             resetOnReinstall: configuration.resetKeychainOnReinstall, log: log
         )
         self.lifecycle = lifecycle
         self.files = ProtectedFileStore(
             root: root.appendingPathComponent("files", isDirectory: true), vaultID: configuration.identifier,
             keys: keys, capabilities: capabilities, log: log, now: configuration.clock,
+            requireSecureEnclave: configuration.secureEnclave == .required,
             prepare: { try await lifecycle.prepare() }
         )
         self.observer = ProtectedDataObserver {
-            Task {
-                await keys.clearCache(onlyWhenUnlockedDomains: true)
-                await lifecycle.closeAll()
-            }
+            Task { await Self.handleDeviceLock(keys: keys, lifecycle: lifecycle) }
         }
     }
 
@@ -158,7 +156,7 @@ public final class SecureVault: Sendable {
     /// Destroys every key, item, file and database in this vault.
     public func reset() async throws {
         await lifecycle.closeAll()
-        for service in try await keychain.services(withPrefix: "\(configuration.identifier).") {
+        for service in try await VaultLifecycle.ownedServices(vaultID: configuration.identifier, keychain: keychain) {
             try await keychain.deleteAll(service: service)
         }
         try await keys.destroyEverything()
@@ -170,6 +168,13 @@ public final class SecureVault: Sendable {
         for database in await lifecycle.openDatabases { await lifecycle.removeDatabase(database.name) }
         await lifecycle.invalidate()
         log.event("reset")
+    }
+
+    /// What happens when the device locks: keys that need an unlocked device are dropped and databases readable
+    /// only while unlocked are closed. After-first-unlock keys and databases keep working for background tasks.
+    static func handleDeviceLock(keys: KeyManager, lifecycle: VaultLifecycle) async {
+        await keys.clearCache(onlyWhenUnlockedDomains: true)
+        await lifecycle.closeForDeviceLock()
     }
 
     /// Drops cached keys and closes databases. The next access reloads them from the Keychain.

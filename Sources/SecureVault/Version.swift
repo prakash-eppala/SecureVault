@@ -7,7 +7,7 @@
 
 extension SecureVault {
     /// Marketing version of the SDK. Matches the git tag.
-    public static let version = "1.0.0"
+    public static let version = "1.0.1"
     /// Build number, incremented for every release build.
-    public static let build = 1
+    public static let build = 2
 }

@@ -112,8 +112,12 @@ import Foundation
 
     @objc(authenticateWithReason:completion:)
     public static func authenticate(reason: String, completion: @escaping @Sendable (Bool, NSError?) -> Void) {
+        authenticate(reason: reason, using: BiometricAuthenticator(), completion: completion)
+    }
+
+    static func authenticate(reason: String, using authenticator: BiometricAuthenticator, completion: @escaping @Sendable (Bool, NSError?) -> Void) {
         deliver({ (value: Bool?, error) in completion(value ?? false, error) }) {
-            _ = try await BiometricAuthenticator().authenticate(reason: reason)
+            _ = try await authenticator.authenticate(reason: reason)
             return true
         }
     }

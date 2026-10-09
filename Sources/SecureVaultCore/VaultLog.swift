@@ -18,8 +18,17 @@ public struct VaultLog: Sendable {
 
     package func event(_ operation: StaticString, namespace: String? = nil, key: String? = nil) {
         guard isEnabled else { return }
-        let keyHash = key.map { String(Digest.hex(Digest.sha256($0)).prefix(12)) } ?? "-"
-        logger.debug("\(operation, privacy: .public) ns=\(namespace ?? "-", privacy: .public) key#=\(keyHash, privacy: .public)")
+        let keyHash = key.map(Self.hash) ?? "-"
+        let space = namespace.map { Self.builtInNamespaces.contains($0) ? $0 : "#" + Self.hash($0) } ?? "-"
+        logger.debug("\(operation, privacy: .public) ns=\(space, privacy: .public) key#=\(keyHash, privacy: .public)")
+    }
+
+    static let builtInNamespaces: Set<String> = [
+        VaultNamespace.default, .auth, .session, .user, .preferences, .medical, .financial, .cache,
+    ].reduce(into: []) { $0.insert($1.rawValue) }
+
+    static func hash(_ value: String) -> String {
+        String(Digest.hex(Digest.sha256(value)).prefix(12))
     }
 
     package func warning(_ message: String) {

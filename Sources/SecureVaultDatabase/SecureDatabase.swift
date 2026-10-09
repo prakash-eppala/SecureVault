@@ -27,6 +27,8 @@ public actor SecureDatabase {
 
     private var connection: SQLiteConnection?
     private var state: KeyState?
+    /// Set while `rotateKey()` holds a new key version that is not yet committed, so a reopen never deletes it.
+    private var isRotating = false
 
     private struct KeyState {
         var domain: KeyDomain
@@ -43,7 +45,8 @@ public actor SecureDatabase {
         log: VaultLog, now: @escaping @Sendable () -> Date
     ) {
         self.name = name
-        self.fileURL = directory.appendingPathComponent(Digest.hex(Digest.sha256("db", name)) + ".sqlite")
+        let folder = directory.appendingPathComponent(Digest.hex(Digest.sha256("db", name)), isDirectory: true)
+        self.fileURL = folder.appendingPathComponent("records.sqlite")
         self.requestedDomain = domain
         self.protection = domain.accessibility.fileProtection
         self.keys = keys
@@ -53,6 +56,9 @@ public actor SecureDatabase {
     }
 
     public nonisolated var keyPurpose: String { Self.keyPurpose(name) }
+
+    /// Databases readable only while unlocked close when the device locks; after-first-unlock ones stay open.
+    package nonisolated var closesWhenDeviceLocks: Bool { protection == .complete }
     package static func keyPurpose(_ name: String) -> String { "db.\(Digest.hex(Digest.sha256(name)).prefix(16))" }
 
     // MARK: - Typed API
@@ -155,6 +161,8 @@ public actor SecureDatabase {
     public func rotateKey() async throws -> Int {
         let old = try await ready()
         let id = KeyID(purpose: keyPurpose, domain: old.domain)
+        isRotating = true
+        defer { isRotating = false }
         let (version, key) = try await keys.rotate(id)
         let new = Self.derive(key, version: version, domain: old.domain)
 
@@ -194,9 +202,7 @@ public actor SecureDatabase {
 
     package func destroyFiles() {
         close()
-        for suffix in ["", "-wal", "-shm"] {
-            try? FileManager.default.removeItem(atPath: fileURL.path + suffix)
-        }
+        try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
     }
 
     package var currentKeyVersion: Int? { state?.version }
@@ -236,7 +242,7 @@ public actor SecureDatabase {
             let id = KeyID(purpose: keyPurpose, domain: domain)
             let key = try await keys.key(for: id, version: version)
             // Remove versions left by an interrupted rotation (newer, never committed) or a crash after commit (older).
-            for stale in try await keys.versions(for: id) where stale != version {
+            for stale in try await keys.versions(for: id) where stale != version && !isRotating {
                 try? await keys.destroy(id, version: stale)
             }
             state = Self.derive(key, version: version, domain: domain)
@@ -250,10 +256,11 @@ public actor SecureDatabase {
         }
 
         if isNew {
-            var url = fileURL
+            // Set on the folder so the -wal and -shm files are covered too.
+            var folder = directory
             var values = URLResourceValues()
             values.isExcludedFromBackup = state.domain.deviceOnly
-            try? url.setResourceValues(values)
+            try? folder.setResourceValues(values)
         }
         self.connection = connection
         self.state = state

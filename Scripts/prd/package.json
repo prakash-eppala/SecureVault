@@ -3,7 +3,7 @@
   "private": true,
   "description": "Generates the SecureVault PRD in Word and Markdown from one source.",
   "scripts": {
-    "build": "node build-prd.js ../SecureVault_PRD_v1.0.docx && node build-prd.js ../SecureVault_PRD.md"
+    "build": "node build-prd.js ../../docs/SecureVault_PRD_v1.0.docx && node build-prd.js ../../docs/SecureVault_PRD.md"
   },
   "dependencies": {
     "docx": "9.5.1"

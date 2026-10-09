@@ -30,6 +30,7 @@ public actor ProtectedFileStore {
     private let now: @Sendable () -> Date
     /// The vault's one-time setup (reinstall handling). Runs before any key is touched.
     private let prepare: @Sendable () async throws -> Void
+    private let requireSecureEnclave: Bool
     private let fileManager = FileManager.default
 
     static let purpose = "files"
@@ -47,8 +48,10 @@ public actor ProtectedFileStore {
 
     package init(root: URL, vaultID: String, keys: KeyManager, capabilities: any DeviceCapabilities,
                  log: VaultLog, now: @escaping @Sendable () -> Date,
+                 requireSecureEnclave: Bool = false,
                  prepare: @escaping @Sendable () async throws -> Void = {}) {
         self.prepare = prepare
+        self.requireSecureEnclave = requireSecureEnclave
         self.root = root
         self.vaultID = vaultID
         self.keys = keys
@@ -187,7 +190,7 @@ public actor ProtectedFileStore {
     private func write(named name: String, namespace: VaultNamespace, policy: StoragePolicy, size: Int64,
                        next: () throws -> Data) async throws {
         try await prepare()
-        try PolicyEngine.validate(policy, capabilities: capabilities)
+        try PolicyEngine.validate(policy, capabilities: capabilities, requireSecureEnclave: requireSecureEnclave)
         if policy.userAuthentication != nil {
             throw SecureVaultError.securityPolicyViolation(reason: "biometric-gated files are not supported in V1")
         }

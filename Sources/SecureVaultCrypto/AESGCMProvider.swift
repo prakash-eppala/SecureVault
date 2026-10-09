@@ -16,10 +16,9 @@ public struct AESGCMProvider: CryptoProvider {
     public var algorithm: String { "A256GCM" }
 
     public func seal(_ plaintext: Data, using key: SymmetricKey, authenticating aad: Data) throws -> Data {
-        guard let combined = try AES.GCM.seal(plaintext, using: key, authenticating: aad).combined else {
-            throw SecureVaultError.encryptionFailed
-        }
-        return combined
+        // Same bytes as `combined` (nonce ‖ ciphertext ‖ tag), without its optional, which is only nil for custom nonce sizes.
+        let box = try AES.GCM.seal(plaintext, using: key, authenticating: aad)
+        return Data(box.nonce) + box.ciphertext + box.tag
     }
 
     public func open(_ sealed: Data, using key: SymmetricKey, authenticating aad: Data) throws -> Data {

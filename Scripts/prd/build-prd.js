@@ -141,6 +141,7 @@ add(TABLE(["Field", "Value"], [
   ["Date", "9 October 2026"],
   ["Status", "Draft for review. Engineering decisions are resolved; business decisions are open (see §51)."],
   ["Scope", "The V1 SDK for Swift, Objective-C and SwiftUI. Business decisions still open are listed in §51."],
+  ["SDK version", "1.0.1 (build 2). Read it at run time from `SecureVault.version` / `SecureVault.build`, or `SVVault.sdkVersion` / `SVVault.sdkBuild` in Objective-C."],
 ], [2200, 7160]));
 
 
@@ -218,7 +219,7 @@ add(TABLE(["Component", "Responsibility", "Module"], [
   ["StoragePolicy / PolicyEngine", "Classification, presets, validation and resolution to a concrete placement (§10).", "SecureVaultCore"],
   ["Keychain store", "Keychain items in the data-protection keychain (§12).", "SecureVaultKeychain"],
   ["Encrypted object store", "Envelope files for values not placed in the Keychain (§11).", "SecureVaultCore"],
-  ["CryptoProvider", "AES-256-GCM, HKDF, HMAC via CryptoKit (§13).", "SecureVaultCrypto"],
+  ["CryptoProvider / AESGCMProvider, KeyDerivation", "Protocol in Core; AES-256-GCM, HKDF and HMAC via CryptoKit in Crypto (§13).", "SecureVaultCore / SecureVaultCrypto"],
   ["KeyManager / KeyProtector", "Key generation, versioning, rotation, Secure Enclave wrapping (§15–16).", "SecureVaultCore / SecureVaultCrypto"],
   ["SecureDatabase", "Encrypted Codable record store on system SQLite (§17).", "SecureVaultDatabase"],
   ["ProtectedFileStore", "Streaming-encrypted files (§19).", "SecureVaultFiles"],
@@ -245,7 +246,7 @@ add(H2("10.3 Presets"));
 add(TABLE(["Preset", "Class", "Differences from class default"], [
   ["`.standard`, `.preference`", "Standard", "—"],
   ["`.sensitive`", "Sensitive", "—"],
-  ["`.secret`, `.accessToken`, `.refreshToken`, `.session`", "Secret", "After-first-unlock so background refresh works (§33)."],
+  ["`.secret`, `.accessToken`, `.refreshToken`, `.session`", "Secret", "Same as the class default (after first unlock, so background refresh works; §33)"],
   ["`.credential`", "Secret", "When unlocked."],
   ["`.otp`", "Secret", "Expires after 5 minutes."],
   ["`.highlySensitive`", "Highly Sensitive", "—"],
@@ -254,7 +255,8 @@ add(TABLE(["Preset", "Class", "Differences from class default"], [
 add(P("Presets are values, so modifiers compose: `.accessToken.expiring(after: 3600)`, `.sensitive.allowingBackup()`, `.secret.stored(in: .encryptedFile)`, `.highlySensitive.requiringUserAuthentication(.userPresence)`."));
 add(H2("10.4 Routing rules"));
 [
-  "Backend `.automatic` resolves to the Keychain when the policy requires user authentication, or when the class is Secret or higher and the encoded value is 4 KB or less. Otherwise it resolves to the encrypted object store.",
+  "Backend `.automatic` resolves to the Keychain when the policy requires user authentication, or when the class is Secret and the JSON-encoded value is 4 KB or less. Highly Sensitive data goes to the encrypted object store unless `.keychain` is chosen explicitly. Otherwise it resolves to the encrypted object store.",
+  "`requiringUserAuthentication(_:)` also forces Keychain placement and device-only. Other modifiers: `expiring(after:)`, `allowingBackup()`, `deviceOnly(_:)`, `stored(in:)`, `accessible(_:)`, `requiringDevicePasscode(_:)`.",
   "An explicit backend (`.keychain` or `.encryptedFile`) is honoured if it passes validation.",
   "Storing a key again with a different placement moves it: the new copy is written first, then the old copy is deleted.",
 ].forEach((t) => add(B(t)));
@@ -268,9 +270,9 @@ add(TABLE(["#", "Rule", "Error"], [
   ["R5", "User authentication or when-passcode-set requested with backup allowed.", "securityPolicyViolation"],
   ["R6", "Keychain placement for a value larger than 64 KB.", "securityPolicyViolation"],
   ["R7", "Biometric Protected class without a user-authentication requirement.", "securityPolicyViolation"],
-  ["R8", "Policy requires a device passcode and none is set.", "securityPolicyViolation"],
+  ["R8", "A device passcode is needed (explicitly, through when-passcode-set, or through any user-authentication requirement) and none is set.", "securityPolicyViolation"],
   ["R9", "Biometry required and none is enrolled or available.", "biometryNotAvailable"],
-  ["R10", "Secure Enclave set to `.required` and none is available.", "securityPolicyViolation"],
+  ["R10", "Secure Enclave set to `.required`, none is available, and the policy is device-only (key-value items, databases and files).", "securityPolicyViolation"],
 ], [600, 6560, 2200]));
 
 // 11
@@ -284,11 +286,23 @@ add(CODE([
 add(TABLE(["Aspect", "Decision"], [
   ["Encoding", "JSON (`JSONEncoder`) so Swift and Objective-C read each other's values. A type that does not decode raises `typeMismatch`."],
   ["Keychain location", "Generic password, service `<vaultID>.kv.<namespace>`, account = key."],
-  ["File location", "`Application Support/SecureVault/<vaultID>/objects/<SHA-256(namespace)>/<SHA-256(vaultID|namespace|key)>`. Key names do not appear on disk."],
+  ["File location", "`Application Support/SecureVault/<vaultID>/objects/<hex SHA-256(namespace)>/<hex SHA-256(vaultID, namespace, key)>`, parts joined with U+001F. Key names do not appear on disk."],
   ["Envelope", "Every value, including Keychain-stored ones, is sealed in the §14 envelope. Expiry is authenticated and tampering is detected the same way in both backends."],
   ["Lookup", "Retrieve checks the Keychain, then the object store. A key exists in at most one backend."],
   ["Writes", "Atomic: file writes replace the file in one step; Keychain writes use update-in-place (§12)."],
+  ["Operations", "`store`, `retrieve`, `value` (nil when absent or expired), `exists` (never prompts; true for items that need authentication), `delete`, `clear(namespace:)`, `purgeExpired()`, `purgeUnreadableItems()`, `lock()`, `reset()`. Defaults: namespace `.default`, policy `.sensitive`. An empty key or a value that does not encode throws `invalidData`."],
 ], [2000, 7360]));
+add(H2("11.1 Vault configuration"));
+add(TABLE(["Setting", "Default and meaning"], [
+  ["identifier", "Bundle identifier. Separates this vault's Keychain items and files from other vaults."],
+  ["directory", "`Application Support/SecureVault/<identifier>` for encrypted files and databases."],
+  ["keychainAccessGroup", "None. Keychain sharing with extensions (§32)."],
+  ["secureEnclave", "`.whenAvailable`; `.required` fails closed (R10), `.never` turns wrapping off (§15.2)."],
+  ["resetKeychainOnReinstall", "On (§31)."],
+  ["sessionNamespaces", "`auth`, `session`, `cache`, cleared by `logout()` (§23)."],
+  ["loggingEnabled", "Off (§26)."],
+  ["keychain, capabilities, keyProtector, clock", "Overrides for tests and previews. `Configuration.testing()` gives an in-memory Keychain, fixed capabilities, identifier `test`, no Secure Enclave and a temporary directory."],
+], [2800, 6560]));
 
 // 12
 add(H1("12. Keychain Layer"));
@@ -309,7 +323,8 @@ add(TABLE(["SecureVault accessibility", "Device-only", "kSecAttrAccessible"], [
 // 13
 add(H1("13. CryptoKit Layer"));
 add(TABLE(["Use", "Primitive"], [
-  ["Value, record and chunk encryption", "AES-256-GCM, 96-bit random nonce, 128-bit tag"],
+  ["Value and record encryption", "AES-256-GCM, 96-bit random nonce, 128-bit tag"],
+  ["File chunk encryption", "AES-256-GCM with a per-file key; nonce = random 7-byte prefix ‖ 4-byte counter ‖ last-chunk flag (§19)"],
   ["Sub-key derivation", "HKDF-SHA256"],
   ["Blind indexes for record ids", "HMAC-SHA256"],
   ["Key wrapping in the Secure Enclave", "P-256 ECDH (Secure Enclave key) + HKDF-SHA256 + AES-256-GCM (ECIES)"],
@@ -324,25 +339,25 @@ add(TABLE(["Field", "Size", "Content"], [
   ["Magic", "3 bytes", "`SVE`"],
   ["Format version", "1 byte", "1"],
   ["Header length", "4 bytes, big-endian", "n"],
-  ["Header", "n bytes", "JSON: algorithm, key purpose, key domain, key version, created-at, expires-at"],
+  ["Header", "n bytes", "JSON with sorted keys: `alg` (`A256GCM`), `kp` key purpose, `kd` key domain, `kv` key version, `ca` created-at, `ea` expires-at (dates as seconds since 1970)"],
   ["Sealed box", "remaining", "nonce ‖ ciphertext ‖ tag"],
 ], [2200, 2400, 4760]));
-add(P("The associated data is the magic, version, length and header bytes plus a location context: SHA-256 of `vaultID|namespace|key` (or the record or file equivalent). Changing the expiry, the key version, or moving a ciphertext to another key or record fails authentication with `decryptionFailed`."));
+add(P("The associated data is the magic, version, length and header bytes plus a location context: SHA-256 of vaultID, namespace and key joined with U+001F. Database records use their type and id tags; files use SHA-256 of vaultID, `files`, namespace and name. Changing the expiry, the key version, or moving a ciphertext to another key or record fails authentication with `decryptionFailed`."));
 
 // 15
 add(H1("15. Key Management"));
 add(H2("15.1 Key hierarchy"));
-add(P("A data key is identified by **purpose**, **protection domain** and **version**. Purposes are `kv` (key-value), `files`, and `db.<name>` (one per database). The protection domain is the pair (accessibility, device-only), which gives five domains: when-unlocked local/portable, after-first-unlock local/portable, and when-passcode-set local."));
+add(P("A data key is identified by **purpose**, **protection domain** and **version**. Purposes are `kv` (key-value), `files`, and `db.<first 16 hex characters of SHA-256(database name)>` (one per database, so the name never appears in the Keychain). The protection domain is the pair (accessibility, device-only), which gives five domains: when-unlocked local/portable, after-first-unlock local/portable, and when-passcode-set local."));
 [
   "Each key is a random 256-bit `SymmetricKey`, stored as a Keychain item in service `<vaultID>.keys`, account `<purpose>|<domain>|v<N>`, with the domain's own accessibility. A key is never more available than the data it protects.",
   "Keys are created with add-only writes. Concurrent first-use requests are de-duplicated in the `KeyManager` actor, so two callers can never create two different version-1 keys.",
   "The current version is the highest version present, so no separate pointer item is needed.",
-  "Unwrapped keys are cached in memory. The cache is cleared by `vault.lock()` and, for when-unlocked domains, when the device locks.",
+  "Unwrapped keys are cached in memory. `vault.lock()` clears the cache and closes open databases. When the device locks (iOS and Mac Catalyst), every key except after-first-unlock keys is dropped.",
 ].forEach((t) => add(B(t)));
 add(H2("15.2 Secure Enclave"));
 [
   "Setting `secureEnclave`: `.whenAvailable` (default), `.required` or `.never`.",
-  "The Secure Enclave holds only P-256 keys, so it wraps data keys rather than storing them. One Secure Enclave key-agreement key per vault is created and its opaque handle kept in the Keychain.",
+  "The Secure Enclave holds only P-256 keys, so it wraps data keys rather than storing them. One Secure Enclave key-agreement key per vault is created; its opaque handle is stored at service `<vaultID>.keys`, account `kek|secure-enclave` (after first unlock, device-only). Stored keys start with `0x00` (raw) or `0x01` (wrapped). `Configuration.keyProtector` can replace the protector; `SoftwareKeyProtector` is a software stand-in for tests and simulators only.",
   "Wrapping applies to device-only domains only. Portable keys are never Secure Enclave-wrapped, because a backup restored to another device could not unwrap them.",
   "`.required` on a device without a Secure Enclave fails with `securityPolicyViolation` (rule R10).",
 ].forEach((t) => add(B(t)));
@@ -351,13 +366,13 @@ add(P("Revocation means crypto-shredding: deleting a key version makes every val
 
 // 16
 add(H1("16. Key Rotation"));
-add(P("`try await vault.rotateKeys()` rotates every purpose and domain in use and returns a `KeyRotationReport`."));
+add(P("`try await vault.rotateKeys(databases:)` rotates every key-value and file key in use, plus databases opened in this process or named in `databases:`, and returns a `KeyRotationReport` (`reencryptedItems`, `skippedItems`, `reencryptedRecords`, `reencryptedFiles`, `retiredKeyVersions`, `isComplete`)."));
 ["Create version N+1 of each key in use. New writes use it immediately.",
   "Re-encrypt each item sealed with an older version: open with the old key, seal with the new key, replace atomically.",
   "Rotate each database inside a single SQLite transaction (§17).",
-  "Delete an old key version only when no item still references it.",
+  "Delete old key versions last. For key-value data, if any item needing authentication was skipped, every old key-value version is kept.",
 ].forEach((t) => add(N(t, "rotation")));
-add(P("**Crash safety:** every envelope names its key version, and old versions are deleted last. An interrupted rotation leaves a mix of versions that are all still readable; calling `rotateKeys()` or `completePendingRotations()` again finishes the work. No journal is needed."));
+add(P("**Crash safety:** every envelope names its key version, and old versions are deleted last. An interrupted rotation leaves a mix of versions that are all still readable. `completePendingRotations()` finishes interrupted key-value rotation; calling `rotateKeys()` again finishes file rotation; a database cleans up an uncommitted key version the next time it opens. No journal is needed."));
 add(P("**Items requiring user authentication** cannot be re-encrypted without a prompt. They are reported as skipped and their old key version is retained until they are rewritten."));
 
 // 17
@@ -374,10 +389,11 @@ add(CODE([
   "PRAGMA journal_mode = WAL;  PRAGMA secure_delete = ON;",
 ]));
 [
-  "One database file per name, in a directory with the policy's file protection, which new WAL and SHM files inherit.",
+  "Each database lives in its own folder, `databases/<hex SHA-256(\"db\", name)>/records.sqlite`, created with the policy's file protection, which the WAL and SHM files inherit. The folder of a device-only database is excluded from backup.",
   "Encryption and index keys are derived from the database key version with HKDF. `type_tag` and `id_tag` are HMACs, so patient ids and type names never appear in the file.",
   "Each payload is an envelope whose associated data includes the type and id tags, so rows cannot be swapped.",
-  "The policy is fixed when the database is created and recorded in `meta`. Reopening with a different policy uses the recorded one and logs a warning.",
+  "The protection domain (accessibility and device-only) is fixed when the database is created and recorded in `meta` with `keyVersion` and `format`. Reopening with a different policy keeps the recorded domain and logs a warning when logging is on.",
+  "`database(_:policy:)` defaults to `.highlySensitive` and rejects policies that require user authentication. `SecureRecord.recordType` defaults to the Swift type name and can be overridden. An untyped API (`putData`, `data`, `allData`, `count`, `delete`, `deleteAll` by type and id string) serves Objective-C; `close()` closes the connection until next use.",
 ].forEach((t) => add(B(t)));
 add(H2("17.3 Data model and queries"));
 add(P("The database is a typed document store. Records conform to `SecureRecord` (Codable, Sendable, Identifiable with a string-convertible id). V1 queries:"));
@@ -403,7 +419,8 @@ add(H1("19. Secure Files"));
   "Streaming format: the STREAM construction (online authenticated encryption) with AES-256-GCM over 64 KiB chunks. Each file gets its own key, derived with HKDF from the data key and a random 32-byte salt.",
   "Each chunk nonce is a 7-byte random prefix, a 4-byte counter and a last-chunk flag. This detects truncation, reordering and splicing.",
   "The file name, size and creation date are stored encrypted in the file, so names do not appear on disk while `list(namespace:)` still works.",
-  "API: write from `Data` or stream from a file URL; read to `Data` or stream to a URL; exists, delete, list, clear namespace, rotate.",
+  "API: `write(_:named:namespace:policy:)` and `write(contentsOf:named:namespace:policy:)`; `read(named:namespace:)`; `export(named:namespace:to:)` (output gets Complete protection); `exists`, `delete`, `list(namespace:)` returning name, size and creation date; `clear(namespace:)`, `clearAll()`, `count()`, `purgeUnreadable()`, `rotateKeys()`. Default policy `.sensitive`; policies requiring user authentication are rejected.",
+  "Format: `SVF1` ‖ header length ‖ header JSON (`alg` = `A256GCM-STREAM64K`, `kp`, `kd`, `kv`, `salt`, `np`) ‖ metadata length ‖ sealed metadata ‖ chunks of 64 KiB plus a 16-byte tag, stored at `files/<hex SHA-256(namespace)>/<hex context>.svf`.",
   "Files are rewritten through a temporary file in the same directory, then replace the original in one atomic step.",
 ].forEach((t) => add(B(t)));
 
@@ -412,7 +429,7 @@ add(H1("20. Biometric Protection"));
 [
   "Supported requirements: `.userPresence` (biometry or passcode), `.biometryAny`, `.biometryCurrentSet` (default for `.biometric`), `.devicePasscode`.",
   "With `.biometryCurrentSet`, adding or removing a fingerprint or face permanently invalidates the item. Reads then fail with `itemNotFound`. Apps must treat this as \"sign in again\". Use `.biometryAny` or `.userPresence` when lower friction matters more than detecting new enrollments.",
-  "`BiometricAuthenticator.authenticate(reason:reuseDuration:)` returns an `AuthenticationContext` that can be passed to several reads, so the user is prompted once.",
+  "`BiometricAuthenticator.authenticate(reason:allowingPasscodeFallback:reuseDuration:)` returns an `AuthenticationContext` that can be passed to several reads, so the user is prompted once. Passcode fallback is on by default; reuse is capped at the system maximum. Also: `biometryKind`, `isBiometryAvailable`, `canAuthenticate(allowingPasscodeFallback:)` and `enrollmentFingerprint`.",
   "In V1, biometric gating applies to Keychain items up to 64 KB. Biometric-gated databases and files are V2.",
   "The host app must declare `NSFaceIDUsageDescription`.",
   "Biometric authentication is a local protection layer and must not replace server-side authorization for sensitive banking or healthcare operations.",
@@ -429,10 +446,10 @@ add(H1("21. Expiration"));
 
 // 22-23
 add(H1("22. Namespaces"));
-add(P("The type is `VaultNamespace` (not `Namespace`, which would clash with SwiftUI's `@Namespace`). Built-in namespaces: `default`, `auth`, `session`, `user`, `preferences`, `medical`, `financial`, `cache`. A namespace maps to a Keychain service and an object-store directory, and is also used by the file store, so clearing one is a bounded operation."));
+add(P("The type is `VaultNamespace` (not `Namespace`, which would clash with SwiftUI's `@Namespace`). Built-in namespaces: `default`, `auth`, `session`, `user`, `preferences`, `medical`, `financial`, `cache`; `VaultNamespace.user(id:)` gives `user.<id>`. Namespaces must not be empty. A namespace maps to a Keychain service and an object-store directory, and is also used by the file store, so clearing one is a bounded operation."));
 add(P("**Multiple accounts on one device:** use a namespace per user (for example `user.<accountID>`) and clear it on account removal. Logging out of one account does not affect another."));
 add(H1("23. Logout"));
-add(P("`vault.logout()` clears the configured session namespaces (default: `auth`, `session`, `cache`) in the Keychain, object store and file store. `LogoutOptions` can add namespaces, name databases to delete, and include persistent data. Logout deletes data but keeps keys, because keys are shared across namespaces. To crypto-shred everything, use `reset()`."));
+add(P("`vault.logout()` clears the configured session namespaces (default: `auth`, `session`, `cache`) in the Keychain, object store and file store. `LogoutOptions(additionalNamespaces:databases:includeFiles:)` adds namespaces, names databases to delete, and controls whether protected files are cleared (default yes). Logout deletes data but keeps keys, because keys are shared across namespaces. To crypto-shred everything, use `reset()`."));
 
 // 24
 add(H1("24. Migration"));
@@ -445,22 +462,22 @@ add(CODE([
 ]));
 ["Read the source. If it is absent, report it as skipped (this makes migration safe to run on every launch).",
   "Store it in SecureVault with the target policy.",
-  "Read it back and compare bytes. Only on a match, delete the source.",
+  "Read it back and compare bytes; only on a match, delete the source. Targets that require user authentication are checked by presence instead, so migration never prompts.",
   "Report each item as migrated, skipped or failed. A failure leaves the source intact.",
 ].forEach((t) => add(N(t, "migration")));
-add(P("Prior SecureVault formats are handled by the envelope format version. V1 reads format 1."));
+add(P("Sources: `userDefaults(_:suiteName:as:to:namespace:policy:)` reads plist types directly and decodes other Codable values from JSON or property-list data; `keychain(service:account:accessGroup:as:to:namespace:policy:source:)` reads generic passwords as `.string` or `.data`. `MigrationReport` lists `migrated`, `skipped` and `failed` labels and `isComplete`. Prior SecureVault formats are handled by the envelope format version; V1 reads format 1."));
 
 // 25-26
 add(H1("25. Security Diagnostics"));
-add(P("`await vault.securityReport()` returns findings with a severity and a stable code. It never includes values or key names. V1 findings: no device passcode; biometry unavailable; Secure Enclave unavailable; in-memory Keychain in use; rotation pending (more than one key version); portable (backed-up) domains in use; after-first-unlock (background-readable) domains in use."));
+add(P("`await vault.securityReport()` returns a `SecurityReport` with the device state, a summary of keys (purpose, domain, version count), the number of stored object files, and findings with a stable code and severity. It never includes values or key names. Findings: `keychain.in-memory` (critical), `device.no-passcode` (critical), `device.no-biometry` (info), `device.no-secure-enclave` (info), `keys.secure-enclave-off` (warning), `keys.rotation-pending` (warning), `storage.backup-enabled` (info), `storage.background-readable` (info), `logging.enabled` (info)."));
 add(H1("26. Logging"));
-add(P("Logging uses `os.Logger` with subsystem `com.securevault.sdk` and is **off by default**. When enabled, it records operation names, namespaces and hashed key names only. It never logs values, tokens, keys, decrypted payloads, record contents or file contents."));
+add(P("Logging uses `os.Logger` (subsystem `com.securevault.sdk`, category `vault`) and is **off by default** (`Configuration.loggingEnabled`). When enabled, it records operation names, built-in namespace names, and 12-character hashes of key names and custom namespace names (which may contain account ids). It never logs values, tokens, keys, decrypted payloads, record contents or file contents."));
 
 // 27
 add(H1("27. Concurrency"));
 [
   "`KeyManager`, the object store, each `SecureDatabase` and the `ProtectedFileStore` are actors. `SecureVault` is an immutable `Sendable` class.",
-  "Keychain and LocalAuthentication calls run on a dedicated queue and are bridged with continuations.",
+  "Keychain calls run on a dedicated concurrent queue and are bridged with continuations; LocalAuthentication prompts are bridged from their callbacks.",
   "Cancellation is checked between steps. A Keychain or file write that has started is allowed to finish, so cancellation never leaves a half-written value.",
   "The package compiles in Swift 6 language mode with complete concurrency checking.",
 ].forEach((t) => add(B(t)));
@@ -476,7 +493,7 @@ add(TABLE(["Code", "Case", "Meaning"], [
   ["5", "decryptionFailed", "Authentication failed: tampered data, wrong key or moved ciphertext"],
   ["6", "keyUnavailable", "The key version is missing (for example after restore to a new device)"],
   ["7", "keyRotationFailed", "Rotation could not complete"],
-  ["8", "authenticationRequired", "The item needs user authentication and none was possible"],
+  ["8", "authenticationRequired", "Reserved; not thrown in V1 (a Keychain item that cannot prompt reports `protectedDataUnavailable`)"],
   ["9", "authenticationFailed", "Biometry or passcode did not match"],
   ["10", "userCancelled", "The user dismissed the prompt"],
   ["11", "biometryNotAvailable", "No biometry hardware or nothing enrolled"],
@@ -495,7 +512,7 @@ add(TABLE(["Code", "Case", "Meaning"], [
 // 29
 add(H1("29. Fail-Closed Behaviour"));
 add(P("If a requested policy cannot be satisfied, SecureVault returns an error instead of falling back to weaker storage (§10.5)."));
-add(P("**Simulator exception:** the iOS Simulator cannot report a passcode, so SecureVault treats it as passcode-set and logs a warning. This applies only in simulator builds (`targetEnvironment(simulator)`), never on a device. Simulator biometry follows the Simulator's Face ID / Touch ID enrollment menu."));
+add(P("**Simulator exception:** the iOS Simulator cannot report a passcode, so SecureVault treats it as passcode-set. This applies only in simulator builds (`targetEnvironment(simulator)`), never on a device. Simulator biometry follows the Simulator's Face ID / Touch ID enrollment menu."));
 
 // 30-33
 add(H1("30. Backup & Synchronization"));
@@ -507,7 +524,7 @@ add(H1("30. Backup & Synchronization"));
 ].forEach((t) => add(B(t)));
 add(H1("31. Reinstall and Restore"));
 [
-  "**Reinstall:** Keychain items survive app deletion. SecureVault writes an install marker in its Application Support directory. If the marker is missing at startup, all Keychain items for the vault are deleted before first use (`resetKeychainOnReinstall`, default on).",
+  "**Reinstall:** Keychain items survive app deletion. SecureVault keeps an install marker (`.securevault-installed`) in its directory. If the marker is missing, the first vault operation deletes the Keychain items SecureVault owns (services `<vaultID>.keys` and `<vaultID>.kv.*`) before anything else runs (`resetKeychainOnReinstall`, default on). Other items, such as legacy items waiting for migration, are never touched.",
   "**Restore to a new device:** portable data restores and works. Device-only data restores without its keys, so reads fail with `keyUnavailable`.",
   "Following principle 8, nothing is deleted automatically. The app calls `purgeUnreadableItems()` or `deleteDatabase(_:)` and then re-fetches from its server.",
 ].forEach((t) => add(B(t)));
@@ -556,7 +573,8 @@ add(CODE([
   "         completion:^(NSString *value, NSError *error) { ... }];",
 ]));
 [
-  "Classes: `SVVault`, `SVPolicy` (presets as class properties, mutable copy for overrides), `SVDatabase` (JSON-dictionary records), `SVFileStore`, `SVBiometrics`, `SVSecurityReport`.",
+  "Classes: `SVVault` (with `sharedVault`, `initWithIdentifier:`, `inMemoryVaultForTesting`, `fileStore`, `sdkVersion`, `sdkBuild`), `SVPolicy` (presets as class properties; copy a preset and set its properties to override), `SVDatabase` (JSON-dictionary records), `SVFileStore`, `SVBiometrics`, and `SVError` (error domain); enums `SVErrorCode`, `SVClassification`, `SVAccessibility`, `SVUserAuthentication`, `SVStorageBackend`. The security report arrives as a dictionary from `securityReportWithCompletion:`.",
+  "A nil namespace means `default`; a nil policy means `.sensitive` (`.highlySensitive` for databases). Records written from Objective-C read as Swift `SecureRecord` types when the dictionary has every field, including `id`, and `withID:` equals the Swift id's description.",
   "Values: `NSData`, `NSString`, `NSNumber`, and any `NSSecureCoding` object (archived with secure coding).",
   "Strings, data and numbers use the same JSON encoding as Swift, so a value written in Objective-C can be read in Swift and the other way round.",
   "Completion blocks are always called on the main queue. Errors are `NSError` in domain `com.securevault.error` (`SVErrorCode`).",
@@ -572,9 +590,9 @@ add(CODE([
   "  .biometricLock(reason: \"Unlock your records\")",
 ]));
 [
-  "`@SecureStorage` loads asynchronously and publishes changes. Setting the value stores it; setting nil deletes it. `$token` exposes `isLoading`, `error` and a `Binding`.",
+  "`@SecureStorage(_:namespace:policy:vault:)` loads asynchronously and publishes changes (default policy `.sensitive`; the vault comes from the environment unless given). Setting the value stores it; setting nil deletes it. `$token` is the `SecureValue`, with `isLoading`, `error`, `binding`, `load(authentication:)`, `set(_:)` and `delete()`.",
   "`SecureValue<Value>` is the underlying `ObservableObject` (main actor), usable directly in view models.",
-  "`BiometricGate` / `.biometricLock(reason:)` hides content until the user authenticates and locks again when the app goes to the background.",
+  "`BiometricGate(reason:allowPasscodeFallback:authenticateOnAppear:authenticator:)` / `.biometricLock(reason:)` hides content until the user authenticates (on appear by default) and locks again when the app goes to the background.",
 ].forEach((t) => add(B(t)));
 
 // 39
@@ -614,9 +632,10 @@ add(P("These are targets on representative devices (iPhone 12 or newer), not con
 add(H1("45. Testing Strategy"));
 [
   "**Unit tests (`swift test` on macOS):** an injected in-memory Keychain and fixed device capabilities. They cover policy resolution and every validation rule, the envelope, expiry with a controllable clock, namespaces, logout, rotation, migration, reinstall, database, files and errors.",
-  "**Security tests:** tampered ciphertext, tampered headers, moved ciphertext, wrong key, deleted key, truncated and reordered file chunks, interrupted rotation, and no plaintext on disk.",
+  "**Security tests:** tampered ciphertext, tampered headers, moved ciphertext, wrong key, deleted key, flipped, truncated and reordered file chunks, forged metadata, interrupted rotation, and no plaintext on disk.",
   "**Concurrency tests:** hundreds of parallel reads and writes, concurrent first-key creation producing exactly one key, and cancellation.",
-  "**Integration tests:** the real data-protection Keychain. A hostless SPM test bundle has no Keychain entitlement on macOS or the iOS Simulator, so these tests run from a small host app on the Simulator; elsewhere they skip themselves with a stated reason.",
+  "**Integration tests:** `SystemKeychain` runs against the macOS login keychain in `swift test` (unique test services, deleted afterwards). Tests against the data-protection Keychain skip themselves without a Keychain entitlement and need a host app on the Simulator or a device.",
+  "**Coverage (V1):** 148 Swift tests and 7 Objective-C tests; 98.7% of lines and 95.6% of regions. The few uncovered lines need a real biometric prompt or a hardware failure.",
   "**Objective-C tests:** an Objective-C test target using the `SVVault` API.",
   "**Manual device plan:** Secure Enclave wrapping, Face ID/Touch ID, enrollment change, device lock, reinstall and backup restore.",
 ].forEach((t) => add(B(t)));

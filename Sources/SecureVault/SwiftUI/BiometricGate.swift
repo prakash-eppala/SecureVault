@@ -14,6 +14,7 @@ public struct BiometricGate<Content: View, Locked: View>: View {
     private let reason: String
     private let allowPasscodeFallback: Bool
     private let authenticateOnAppear: Bool
+    private let authenticator: BiometricAuthenticator
     private let content: () -> Content
     private let locked: (_ unlock: @escaping () -> Void, _ error: SecureVaultError?) -> Locked
 
@@ -26,10 +27,12 @@ public struct BiometricGate<Content: View, Locked: View>: View {
         reason: String,
         allowPasscodeFallback: Bool = true,
         authenticateOnAppear: Bool = true,
+        authenticator: BiometricAuthenticator = BiometricAuthenticator(),
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder locked: @escaping (_ unlock: @escaping () -> Void, _ error: SecureVaultError?) -> Locked
     ) {
         self.reason = reason
+        self.authenticator = authenticator
         self.allowPasscodeFallback = allowPasscodeFallback
         self.authenticateOnAppear = authenticateOnAppear
         self.content = content
@@ -62,7 +65,7 @@ public struct BiometricGate<Content: View, Locked: View>: View {
         isAuthenticating = true
         defer { isAuthenticating = false }
         do {
-            _ = try await BiometricAuthenticator().authenticate(reason: reason, allowingPasscodeFallback: allowPasscodeFallback)
+            _ = try await authenticator.authenticate(reason: reason, allowingPasscodeFallback: allowPasscodeFallback)
             error = nil
             isUnlocked = true
         } catch {
@@ -76,9 +79,11 @@ extension BiometricGate where Locked == BiometricLockedView {
         reason: String,
         allowPasscodeFallback: Bool = true,
         authenticateOnAppear: Bool = true,
+        authenticator: BiometricAuthenticator = BiometricAuthenticator(),
         @ViewBuilder content: @escaping () -> Content
     ) {
-        self.init(reason: reason, allowPasscodeFallback: allowPasscodeFallback, authenticateOnAppear: authenticateOnAppear, content: content) {
+        self.init(reason: reason, allowPasscodeFallback: allowPasscodeFallback, authenticateOnAppear: authenticateOnAppear,
+                  authenticator: authenticator, content: content) {
             BiometricLockedView(unlock: $0, error: $1)
         }
     }
@@ -121,7 +126,9 @@ public struct BiometricLockedView: View {
 
 extension View {
     /// Wraps the view in a `BiometricGate`.
-    public func biometricLock(reason: String, allowPasscodeFallback: Bool = true) -> some View {
-        BiometricGate(reason: reason, allowPasscodeFallback: allowPasscodeFallback) { self }
+    public func biometricLock(
+        reason: String, allowPasscodeFallback: Bool = true, authenticator: BiometricAuthenticator = BiometricAuthenticator()
+    ) -> some View {
+        BiometricGate(reason: reason, allowPasscodeFallback: allowPasscodeFallback, authenticator: authenticator) { self }
     }
 }

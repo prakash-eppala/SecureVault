@@ -100,7 +100,7 @@ final class SQLiteConnection {
         return statement
     }
 
-    private static func error(_ status: Int32, _ handle: OpaquePointer?) -> SecureVaultError {
+    static func error(_ status: Int32, _ handle: OpaquePointer?) -> SecureVaultError {
         let primary = status & 0xFF
         if primary == SQLITE_AUTH || primary == SQLITE_PERM {
             return .protectedDataUnavailable
