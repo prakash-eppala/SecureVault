@@ -37,8 +37,8 @@
 }
 
 - (void)testVersion {
-    XCTAssertEqualObjects(SVVault.sdkVersion, @"1.0.1");
-    XCTAssertEqual(SVVault.sdkBuild, 2);
+    XCTAssertEqualObjects(SVVault.sdkVersion, @"1.0.2");
+    XCTAssertEqual(SVVault.sdkBuild, 3);
 }
 
 - (void)testMissingValueReportsItemNotFound {

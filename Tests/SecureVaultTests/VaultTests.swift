@@ -236,8 +236,8 @@ struct VaultTests {
 
     @Test("version and build")
     func version() {
-        #expect(SecureVault.version == "1.0.1")
-        #expect(SecureVault.build == 2)
+        #expect(SecureVault.version == "1.0.2")
+        #expect(SecureVault.build == 3)
     }
 
     @Test("errors bridge to NSError with stable codes")

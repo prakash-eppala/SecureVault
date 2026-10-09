@@ -7,8 +7,12 @@
 
 import CryptoKit
 import Foundation
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
+#if canImport(SecureVaultCrypto)
 import SecureVaultCrypto
+#endif
 
 /// What `list(namespace:)` reports. Decrypted from the file; never stored in plaintext.
 public struct ProtectedFileInfo: Sendable, Codable, Equatable {

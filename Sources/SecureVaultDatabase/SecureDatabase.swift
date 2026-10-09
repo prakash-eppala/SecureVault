@@ -7,8 +7,12 @@
 
 import CryptoKit
 import Foundation
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
+#if canImport(SecureVaultCrypto)
 import SecureVaultCrypto
+#endif
 
 /// An encrypted record store on the system SQLite (PRD §17).
 ///
@@ -93,7 +97,7 @@ public actor SecureDatabase {
     }
 
     /// Loads every record of a type and filters in memory. Indexed queries are V2.
-    public func all<R: SecureRecord>(_ type: R.Type, where isIncluded: (R) throws -> Bool) async throws -> [R] {
+    public func all<R: SecureRecord>(_ type: R.Type, where isIncluded: @Sendable (R) throws -> Bool) async throws -> [R] {
         try await all(type).filter(isIncluded)
     }
 

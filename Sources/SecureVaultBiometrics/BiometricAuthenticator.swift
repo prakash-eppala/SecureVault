@@ -8,7 +8,9 @@
 import CryptoKit
 import Foundation
 import LocalAuthentication
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
 
 /// LocalAuthentication integration (PRD §20). Biometrics are a local layer; servers stay authoritative.
 public struct BiometricAuthenticator: Sendable {

@@ -7,7 +7,9 @@
 
 import CryptoKit
 import Foundation
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
 
 /// ECIES wrapping: ephemeral P-256 ECDH with a long-lived key-agreement key, HKDF-SHA256, AES-256-GCM.
 /// Wrapped format: ephemeral public key (x9.63, 65 bytes) ‖ AES-GCM combined box.

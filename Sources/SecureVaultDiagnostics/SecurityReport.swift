@@ -6,7 +6,9 @@
 //
 
 import Foundation
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
 
 /// A security posture report. It never contains values, key material or key names (PRD §25).
 public struct SecurityReport: Sendable, Codable, Equatable {

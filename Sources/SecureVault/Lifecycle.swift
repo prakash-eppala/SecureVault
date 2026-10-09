@@ -6,8 +6,12 @@
 //
 
 import Foundation
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
+#if canImport(SecureVaultDatabase)
 import SecureVaultDatabase
+#endif
 
 /// One-time setup (reinstall handling) and the registry of open databases.
 actor VaultLifecycle {

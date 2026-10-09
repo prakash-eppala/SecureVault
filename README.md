@@ -8,15 +8,35 @@ Works from **Swift** (async/await), **Objective-C** (completion blocks, `NSError
 (`@SecureStorage`, `BiometricGate`). The spec is [docs/SecureVault_PRD.md](docs/SecureVault_PRD.md)
 (also as [Word](docs/SecureVault_PRD_v1.0.docx)).
 
-- Version 1.0.1 (build 2): `SecureVault.version` / `SecureVault.build`, or `SVVault.sdkVersion` / `SVVault.sdkBuild` in Objective-C
+- Version 1.0.2 (build 3): `SecureVault.version` / `SecureVault.build`, or `SVVault.sdkVersion` / `SVVault.sdkBuild` in Objective-C
 - iOS 15+, Mac Catalyst 15+, macOS 12+ · Swift 6 language mode · Xcode 16+
 - No third-party dependencies: Keychain, CryptoKit, Secure Enclave, LocalAuthentication, system SQLite
 
 ## Install
 
+**Xcode:** File > Add Package Dependencies, paste `https://github.com/prakash-eppala/SecureVault.git`, choose "Up to Next Major Version" from
+`1.0.2`, and add the `SecureVault` library to your app target. The repository is private, so add the GitHub
+account that has access under Xcode > Settings > Accounts first.
+
+**Package.swift:**
+
 ```swift
-.package(url: "<repository URL>", from: "1.0.1")
+dependencies: [
+    .package(url: "https://github.com/prakash-eppala/SecureVault.git", from: "1.0.2"),
+],
+targets: [
+    .target(name: "MyApp", dependencies: [.product(name: "SecureVault", package: "SecureVault")]),
+]
 ```
+
+**CocoaPods:**
+
+```ruby
+pod 'SecureVault', :git => 'https://github.com/prakash-eppala/SecureVault.git', :tag => '1.0.2'
+```
+
+The pod builds the same `SecureVault` module, so imports are identical. Once the pod is on CocoaPods trunk, this
+becomes `pod 'SecureVault', '~> 1.0'`.
 
 One product, `SecureVault`, serves every kind of app:
 
@@ -135,6 +155,27 @@ let vault = SecureVault(configuration: .testing())    // in-memory Keychain, tem
 `[SVVault inMemoryVaultForTesting]` does the same for Objective-C. Never ship either: the security report flags the
 in-memory Keychain as critical.
 
+## Example app
+
+`Example/SecureVaultExample.xcodeproj` is an iOS 17 app with one screen per feature: tokens and policies, expiry,
+`@SecureStorage`, a biometric PIN, `BiometricGate`, the encrypted database, protected files, migration, namespaces
+and logout, key rotation, the security report, and an Objective-C screen (`ObjCDemo.m`). It uses this package from
+the parent folder.
+
+```bash
+open Example/SecureVaultExample.xcodeproj
+```
+
+Choose an iPhone simulator and run. For the biometric screens, pick Features > Face ID > Enrolled in the Simulator.
+The project is generated from `Example/project.yml` with XcodeGen (`cd Example && xcodegen generate`).
+
+Its test target, `SecureVaultExampleTests`, runs inside the app, so SecureVault uses the real data-protection
+Keychain:
+
+```bash
+xcodebuild test -project Example/SecureVaultExample.xcodeproj -scheme SecureVaultExample -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+```
+
 ## Developing SecureVault
 
 ```bash
@@ -153,8 +194,10 @@ Line coverage is 98.7% (regions 95.6%). To see it:
 swift test --enable-code-coverage
 ```
 
-The few uncovered lines need a real Face ID / Touch ID prompt or a hardware failure. Tests against the
-data-protection Keychain skip themselves without a Keychain entitlement; run them from a host app.
+The few uncovered lines need a real Face ID / Touch ID prompt or a hardware failure. The data-protection Keychain
+needs an entitlement that `swift test` lacks; the example app's test target covers it on the Simulator.
+
+Check the pod with `pod lib lint SecureVault.podspec --allow-warnings`.
 
 ## Security notes
 

@@ -7,7 +7,9 @@
 
 import CryptoKit
 import Foundation
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
 
 /// Chunked online authenticated encryption: the STREAM construction over AES-256-GCM (PRD §19).
 ///

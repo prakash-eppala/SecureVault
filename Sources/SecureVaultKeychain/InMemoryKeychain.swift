@@ -6,7 +6,9 @@
 //
 
 import Foundation
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
 
 /// A Keychain double for unit tests and SwiftUI previews. Never use it in production:
 /// nothing persists and access control is not enforced. Diagnostics flag it as critical.

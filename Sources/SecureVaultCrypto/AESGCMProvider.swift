@@ -7,7 +7,9 @@
 
 import CryptoKit
 import Foundation
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
 
 /// AES-256-GCM with a random 96-bit nonce (PRD §13).
 public struct AESGCMProvider: CryptoProvider {

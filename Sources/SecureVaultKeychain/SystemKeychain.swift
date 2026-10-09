@@ -8,7 +8,9 @@
 import Foundation
 import LocalAuthentication
 import Security
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
 
 /// The data-protection Keychain (PRD §12). Blocking Security calls run on a dedicated queue.
 public final class SystemKeychain: KeychainBackend {

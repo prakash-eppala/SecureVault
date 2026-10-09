@@ -182,8 +182,8 @@ struct ObjCBridgeTests {
 
     @Test("version, shared vault and identifier vaults")
     func misc() {
-        #expect(SVVault.sdkVersion == "1.0.1")
-        #expect(SVVault.sdkBuild == 2)
+        #expect(SVVault.sdkVersion == "1.0.2")
+        #expect(SVVault.sdkBuild == 3)
         #expect(SVVault.sharedVault.vault === SecureVault.shared)
         #expect(SVVault(identifier: "svtest.objc").vault.configuration.identifier == "svtest.objc")
         #expect(SVError.ns(CancellationError()).code == SVErrorCode.cancelled.rawValue)

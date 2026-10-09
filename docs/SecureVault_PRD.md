@@ -10,7 +10,8 @@
 | Date | 9 October 2026 |
 | Status | Draft for review. Engineering decisions are resolved; business decisions are open (see §51). |
 | Scope | The V1 SDK for Swift, Objective-C and SwiftUI. Business decisions still open are listed in §51. |
-| SDK version | 1.0.1 (build 2). Read it at run time from `SecureVault.version` / `SecureVault.build`, or `SVVault.sdkVersion` / `SVVault.sdkBuild` in Objective-C. |
+| Repository | `https://github.com/prakash-eppala/SecureVault.git` (private) |
+| SDK version | 1.0.2 (build 3). Read it at run time from `SecureVault.version` / `SecureVault.build`, or `SVVault.sdkVersion` / `SVVault.sdkBuild` in Objective-C. |
 
 ## 1. Executive Summary
 
@@ -68,7 +69,7 @@ Primary users include iOS developers and teams building banking, fintech, health
 | Swift | Async/await API, Codable values, typed errors. |
 | Objective-C | `SVVault`, `SVPolicy`, `SVDatabase`, `SVFileStore`, completion blocks delivered on the main queue, `NSError` in a stable domain (§37). |
 | SwiftUI | `@SecureStorage`, `SecureValue` observable model, `.secureVault(_:)` environment, `BiometricGate` view (§38). |
-| Distribution | Swift Package Manager in V1. A prebuilt XCFramework is V2. CocoaPods and Carthage are not planned. |
+| Distribution | Swift Package Manager and CocoaPods, from `https://github.com/prakash-eppala/SecureVault.git` (private). Versions are git tags; the current release is `1.0.2`. The pod (`SecureVault.podspec`) compiles every source file into one `SecureVault` module, so imports match the Swift package. A prebuilt XCFramework is V2; Carthage is not planned. |
 | Cross-platform frameworks | React Native and Flutter bridges are not in V1; they can wrap the Objective-C surface later. |
 
 ## 7. Product Principles
@@ -481,6 +482,8 @@ SecureVault cannot protect against a compromised backend, malicious server, comp
 
 Every app needs only `import SecureVault` (Objective-C: `@import SecureVault;`). Linking SwiftUI costs nothing on the supported OS versions, where it is a system framework, so a separate SwiftUI product is not worth the extra choice. The package ships a `PrivacyInfo.xcprivacy` (§39).
 
+The repository also holds `SecureVault.podspec` and `Example/`, an iOS app with one screen per feature (Swift, SwiftUI and Objective-C) and a hosted test target that runs on the real Keychain.
+
 ## 37. Objective-C Support
 
 ```
@@ -582,7 +585,7 @@ These are targets on representative devices (iPhone 12 or newer), not contractua
 - **Unit tests (`swift test` on macOS):** an injected in-memory Keychain and fixed device capabilities. They cover policy resolution and every validation rule, the envelope, expiry with a controllable clock, namespaces, logout, rotation, migration, reinstall, database, files and errors.
 - **Security tests:** tampered ciphertext, tampered headers, moved ciphertext, wrong key, deleted key, flipped, truncated and reordered file chunks, forged metadata, interrupted rotation, and no plaintext on disk.
 - **Concurrency tests:** hundreds of parallel reads and writes, concurrent first-key creation producing exactly one key, and cancellation.
-- **Integration tests:** `SystemKeychain` runs against the macOS login keychain in `swift test` (unique test services, deleted afterwards). Tests against the data-protection Keychain skip themselves without a Keychain entitlement and need a host app on the Simulator or a device.
+- **Integration tests:** `SystemKeychain` runs against the macOS login keychain in `swift test` (unique test services, deleted afterwards). The example app's hosted test target, `SecureVaultExampleTests`, runs on the Simulator against the real data-protection Keychain and Data Protection, and exercises every example screen, including the Objective-C demo.
 - **Coverage (V1):** 148 Swift tests and 7 Objective-C tests; 98.7% of lines and 95.6% of regions. The few uncovered lines need a real biometric prompt or a hardware failure.
 - **Objective-C tests:** an Objective-C test target using the `SVVault` API.
 - **Manual device plan:** Secure Enclave wrapping, Face ID/Touch ID, enrollment change, device lock, reinstall and backup restore.

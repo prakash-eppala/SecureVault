@@ -7,7 +7,9 @@
 
 import Foundation
 import SQLite3
+#if canImport(SecureVaultCore)
 import SecureVaultCore
+#endif
 
 /// Minimal SQLite wrapper. Not thread-safe; owned by the `SecureDatabase` actor.
 final class SQLiteConnection {
