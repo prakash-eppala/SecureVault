@@ -5,7 +5,7 @@ Keychain, encrypted files or an encrypted database, binds keys to the right prot
 when the device cannot provide the protection you asked for.
 
 Works from **Swift** (async/await), **Objective-C** (completion blocks, `NSError`) and **SwiftUI**
-(`@SecureStorage`, `BiometricGate`). The spec is [docs/SecureVault_PRD.md](docs/SecureVault_PRD.md).
+(`@SecureStorage`, `BiometricGate`).
 
 - Version 1.0.2 (build 3): `SecureVault.version` / `SecureVault.build`, or `SVVault.sdkVersion` / `SVVault.sdkBuild` in Objective-C
 - iOS 15+, Mac Catalyst 15+, macOS 12+ · Swift 6 language mode · Xcode 16+
