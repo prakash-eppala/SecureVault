@@ -285,16 +285,16 @@ public actor SecureDatabase {
         )
     }
 
-    private func tag(type: String, _ state: KeyState) -> Data {
+    private nonisolated func tag(type: String, _ state: KeyState) -> Data {
         KeyDerivation.blindIndex("t|\(type)", key: state.indexKey)
     }
 
-    private func tag(type: String, id: String, _ state: KeyState) -> Data {
+    private nonisolated func tag(type: String, id: String, _ state: KeyState) -> Data {
         KeyDerivation.blindIndex("i|\(type)|\(id)", key: state.indexKey)
     }
 
     /// Plaintext layout: typeLength(4) ‖ type ‖ idLength(4) ‖ id ‖ JSON. Type and id travel encrypted so rotation can rebuild the indexes.
-    private func row(type: String, id: String, json: Data, state: KeyState) throws -> [SQLiteConnection.Value] {
+    private nonisolated func row(type: String, id: String, json: Data, state: KeyState) throws -> [SQLiteConnection.Value] {
         let typeTag = tag(type: type, state)
         let idTag = tag(type: type, id: id, state)
         var plaintext = Data()
@@ -312,7 +312,7 @@ public actor SecureDatabase {
         return [.blob(typeTag), .blob(idTag), .blob(payload)]
     }
 
-    private func open(_ payload: Data, typeTag: Data, idTag: Data, state: KeyState) throws -> (type: String, id: String, json: Data) {
+    private nonisolated func open(_ payload: Data, typeTag: Data, idTag: Data, state: KeyState) throws -> (type: String, id: String, json: Data) {
         let plaintext = try Envelope.open(payload, key: state.recordKey, context: typeTag + idTag, crypto: crypto).plaintext
         var cursor = plaintext.startIndex
         func next() throws -> Data {
