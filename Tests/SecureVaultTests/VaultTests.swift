@@ -193,6 +193,20 @@ struct VaultTests {
         #expect(try await keychain.services(withPrefix: "test.").isEmpty)
     }
 
+    @Test("an extension sharing the access group does not wipe the app's Keychain items")
+    func sharedAccessGroupSkipsReinstallWipe() async throws {
+        let keychain = InMemoryKeychain()
+        let app = Harness(keychain: keychain)
+        try await app.vault.store("token", forKey: "accessToken", namespace: .auth, policy: .accessToken)
+
+        // The extension has its own container, so it never sees the app's install marker.
+        var configuration = SecureVault.Configuration.testing(keychain: keychain)
+        configuration.keychainAccessGroup = "group.test"
+        let extensionVault = SecureVault(configuration: configuration)
+        #expect(try await extensionVault.value(String.self, forKey: "accessToken", namespace: .auth) == "token")
+        #expect(try await app.vault.retrieve(String.self, forKey: "accessToken", namespace: .auth) == "token")
+    }
+
     @Test("restore without device-only keys: keyUnavailable, then explicit purge")
     func restoreToNewDevice() async throws {
         let h = Harness()

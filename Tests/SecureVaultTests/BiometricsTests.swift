@@ -18,6 +18,8 @@ struct StubBehaviour: Sendable {
     var biometryType: LABiometryType = .faceID
     var cannotEvaluateCode: LAError.Code? = nil
     var evaluateFailure: LAError.Code? = nil
+    /// Replies `false` with no error, which the system should never do.
+    var failsWithoutError = false
     var domainState: Data? = Data([1, 2, 3])
 }
 
@@ -46,6 +48,8 @@ final class StubContext: LAContext, @unchecked Sendable {
         evaluatedPolicies.append(policy)
         if let code = behaviour.evaluateFailure {
             reply(false, NSError(domain: LAError.errorDomain, code: code.rawValue))
+        } else if behaviour.failsWithoutError {
+            reply(false, nil)
         } else {
             reply(true, nil)
         }
@@ -112,6 +116,12 @@ struct BiometricsTests {
     func failures(_ code: LAError.Code, _ expected: SecureVaultError) async {
         let authenticator = BiometricAuthenticator.stub(StubBehaviour(evaluateFailure: code))
         await expectError(expected) { try await authenticator.authenticate(reason: "r") }
+    }
+
+    @Test("a failed prompt without an error is still a failure")
+    func failureWithoutError() async {
+        let authenticator = BiometricAuthenticator.stub(StubBehaviour(failsWithoutError: true))
+        await expectError(.authenticationFailed) { try await authenticator.authenticate(reason: "r") }
     }
 
     @Test("every LAError code has a mapping")

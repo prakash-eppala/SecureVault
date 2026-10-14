@@ -58,7 +58,10 @@ public struct BiometricAuthenticator: Sendable {
             throw Self.map(error)
         }
         do {
-            _ = try await evaluate(context, policy: policy, reason: reason)
+            // A failure must never count as success, even if the system reports it without an error.
+            guard try await evaluate(context, policy: policy, reason: reason) else { throw SecureVaultError.authenticationFailed }
+        } catch let error as SecureVaultError {
+            throw error
         } catch {
             throw Self.map(error as NSError)
         }

@@ -18,7 +18,7 @@ extension SecureVault {
         public var keychainAccessGroup: String?
         /// Secure Enclave wrapping of device-only keys (PRD §15.2).
         public var secureEnclave: SecureEnclaveUsage
-        /// Delete Keychain items left over from a previous install (PRD §31).
+        /// Delete Keychain items left over from a previous install (PRD §31). Ignored when `keychainAccessGroup` is set.
         public var resetKeychainOnReinstall: Bool
         /// Namespaces cleared by `logout()` (PRD §23).
         public var sessionNamespaces: Set<VaultNamespace>

@@ -648,7 +648,7 @@ struct FileEdgeTests {
         let folder = try storedFile(h).deletingLastPathComponent()
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
         await expectError(.fileFailure(reason: "temporary file")) { try await h.vault.files.write(Data("b".utf8), named: "b") }
-        await #expect(throws: SecureVaultError.fileFailure(reason: "rotation temporary file")) { try await h.vault.files.rotateKeys() }
+        await #expect(throws: SecureVaultError.fileFailure(reason: "temporary file")) { try await h.vault.files.rotateKeys() }
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
 
         let blocked = SecureVault(configuration: .testing(directory: temporaryURL()))

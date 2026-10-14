@@ -263,42 +263,35 @@ public actor ProtectedFileStore {
     }
 
     private func decrypt(at url: URL, context: Data, sink: (Data) throws -> Void) async throws {
-        guard fileManager.fileExists(atPath: url.path) else { throw SecureVaultError.itemNotFound }
-        let (header, _, prefix, handle) = try await openFile(at: url, context: context)
-        defer { try? handle.close() }
-        guard let domain = KeyDomain(id: header.kd) else { throw SecureVaultError.invalidData(reason: "file key domain") }
-        let key = try await keys.key(for: KeyID(purpose: Self.purpose, domain: domain), version: header.kv)
-        let cipher = StreamCipher(dataKey: key, salt: header.salt, noncePrefix: header.np, header: prefix, context: context)
-
-        let blockSize = StreamCipher.chunkSize + StreamCipher.tagSize
-        var index: UInt32 = 0
-        var current = try read(handle, blockSize)
-        guard !current.isEmpty else { throw SecureVaultError.decryptionFailed } // truncated before the final chunk
-        while true {
+        let reader = try await chunks(at: url, context: context)
+        defer { reader.close() }
+        while !reader.isFinished {
             try Task.checkCancellation()
-            let following = try read(handle, blockSize)
-            let isLast = following.isEmpty
-            try sink(try cipher.open(chunk: current, index: index, isLast: isLast))
-            if isLast { break }
-            current = following
-            index += 1
+            try sink(try reader.next())
         }
     }
 
-    private func reencrypt(_ url: URL, info: ProtectedFileInfo, context: Data, domain: KeyDomain) async throws {
-        // Decrypt to a protected temporary file, then stream it back through the normal write path.
-        let plaintext = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).plain")
-        defer { try? fileManager.removeItem(at: plaintext) }
-        guard fileManager.createFile(atPath: plaintext.path, contents: nil, attributes: Self.protectionAttributes(.complete)) else {
-            throw SecureVaultError.fileFailure(reason: "rotation temporary file")
+    /// Opens a file for pull-style decryption. The caller closes the reader.
+    private func chunks(at url: URL, context: Data) async throws -> ChunkReader {
+        guard fileManager.fileExists(atPath: url.path) else { throw SecureVaultError.itemNotFound }
+        let (header, _, prefix, handle) = try await openFile(at: url, context: context)
+        do {
+            guard let domain = KeyDomain(id: header.kd) else { throw SecureVaultError.invalidData(reason: "file key domain") }
+            let key = try await keys.key(for: KeyID(purpose: Self.purpose, domain: domain), version: header.kv)
+            let cipher = StreamCipher(dataKey: key, salt: header.salt, noncePrefix: header.np, header: prefix, context: context)
+            return try ChunkReader(handle: handle, cipher: cipher)
+        } catch {
+            try? handle.close()
+            throw error
         }
-        let output = try FileHandle(forWritingTo: plaintext)
-        try await decrypt(at: url, context: context) { try output.write(contentsOf: $0) }
-        try output.close()
-        let input = try FileHandle(forReadingFrom: plaintext)
-        defer { try? input.close() }
+    }
+
+    /// Re-encrypts straight from the old file into the new one, so no plaintext ever reaches the disk.
+    private func reencrypt(_ url: URL, info: ProtectedFileInfo, context: Data, domain: KeyDomain) async throws {
+        let reader = try await chunks(at: url, context: context)
+        defer { reader.close() }
         try await encrypt(to: url, info: info, context: context, domain: domain) {
-            try input.read(upToCount: StreamCipher.chunkSize) ?? Data()
+            reader.isFinished ? Data() : try reader.next()
         }
     }
 
@@ -383,5 +376,38 @@ public actor ProtectedFileStore {
 
     static func readUInt32(_ data: Data) -> Int {
         data.reduce(0) { ($0 << 8) | Int($1) }
+    }
+}
+
+/// Yields a file's plaintext one authenticated chunk at a time. The final chunk is only accepted once the
+/// reader has seen that nothing follows it, so truncation fails.
+private final class ChunkReader {
+    private let handle: FileHandle
+    private let cipher: StreamCipher
+    private var pending: Data
+    private var index: UInt32 = 0
+    private(set) var isFinished = false
+
+    init(handle: FileHandle, cipher: StreamCipher) throws {
+        self.handle = handle
+        self.cipher = cipher
+        self.pending = try Self.read(handle)
+        guard !pending.isEmpty else { throw SecureVaultError.decryptionFailed } // truncated before the final chunk
+    }
+
+    func next() throws -> Data {
+        let following = try Self.read(handle)
+        let isLast = following.isEmpty
+        let plaintext = try cipher.open(chunk: pending, index: index, isLast: isLast)
+        if isLast { isFinished = true } else { pending = following; index += 1 }
+        return plaintext
+    }
+
+    func close() { try? handle.close() }
+
+    private static func read(_ handle: FileHandle) throws -> Data {
+        do { return try handle.read(upToCount: StreamCipher.chunkSize + StreamCipher.tagSize) ?? Data() } catch {
+            throw SecureVaultError.fileFailure(reason: "read")
+        }
     }
 }

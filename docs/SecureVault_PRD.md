@@ -435,7 +435,7 @@ If a requested policy cannot be satisfied, SecureVault returns an error instead 
 
 ## 31. Reinstall and Restore
 
-- **Reinstall:** Keychain items survive app deletion. SecureVault keeps an install marker (`.securevault-installed`) in its directory. If the marker is missing, the first vault operation deletes the Keychain items SecureVault owns (services `<vaultID>.keys` and `<vaultID>.kv.*`) before anything else runs (`resetKeychainOnReinstall`, default on). Other items, such as legacy items waiting for migration, are never touched.
+- **Reinstall:** Keychain items survive app deletion. SecureVault keeps an install marker (`.securevault-installed`) in its directory. If the marker is missing, the first vault operation deletes the Keychain items SecureVault owns (services `<vaultID>.keys` and `<vaultID>.kv.*`) before anything else runs (`resetKeychainOnReinstall`, default on). Other items, such as legacy items waiting for migration, are never touched. The check is skipped when `keychainAccessGroup` is set: an extension sharing the group has its own container without the marker, and would otherwise delete the app's keys on its first run.
 - **Restore to a new device:** portable data restores and works. Device-only data restores without its keys, so reads fail with `keyUnavailable`.
 - Following principle 8, nothing is deleted automatically. The app calls `purgeUnreadableItems()` or `deleteDatabase(_:)` and then re-fetches from its server.
 

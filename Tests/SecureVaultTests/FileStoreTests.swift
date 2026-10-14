@@ -93,6 +93,21 @@ struct FileStoreTests {
         #expect(families.values.allSatisfy { $0 == [2] })
     }
 
+    @Test("rotation streams old to new without a plaintext copy", arguments: [0, 65_536, 200_000])
+    func rotateWithoutPlaintext(size: Int) async throws {
+        let h = Harness()
+        let data = Data(repeating: 0x5A, count: size) + Data("MARKER-plaintext".utf8)
+        try await h.vault.files.write(data, named: "a")
+        #expect(try await h.vault.rotateKeys().reencryptedFiles == 1)
+        await h.vault.lock()
+        #expect(try await h.vault.files.read(named: "a") == data)
+        #expect(h.allBytesOnDisk().contains("MARKER-plaintext") == false)
+        let leftovers = FileManager.default.enumerator(at: h.vault.files.root, includingPropertiesForKeys: [.isRegularFileKey])?
+            .compactMap { $0 as? URL }
+            .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true && $0.pathExtension != "svf" }
+        #expect(leftovers?.isEmpty == true)
+    }
+
     @Test("clearing a namespace removes its files only")
     func clear() async throws {
         let h = Harness()
