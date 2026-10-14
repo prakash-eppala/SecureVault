@@ -62,7 +62,8 @@ public final class SecureVault: Sendable {
         self.objects = EncryptedObjectStore(root: root.appendingPathComponent("objects", isDirectory: true), vaultID: configuration.identifier)
         let lifecycle = VaultLifecycle(
             root: root, vaultID: configuration.identifier, keychain: keychain,
-            resetOnReinstall: configuration.resetKeychainOnReinstall, log: log
+            // A shared access group is also read by extensions, whose containers never hold this app's install marker.
+            resetOnReinstall: configuration.resetKeychainOnReinstall && configuration.keychainAccessGroup == nil, log: log
         )
         self.lifecycle = lifecycle
         self.files = ProtectedFileStore(

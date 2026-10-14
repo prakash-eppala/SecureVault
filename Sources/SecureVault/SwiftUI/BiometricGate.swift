@@ -8,6 +8,7 @@
 import SwiftUI
 
 /// Hides content until the user authenticates, and locks again when the app leaves the foreground.
+/// This only hides the view: data shown inside it is protected only if it was stored with a user-authentication policy.
 ///
 ///     BiometricGate(reason: "Unlock your records") { RecordsView() }
 public struct BiometricGate<Content: View, Locked: View>: View {
