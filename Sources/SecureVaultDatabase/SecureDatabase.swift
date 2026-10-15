@@ -172,20 +172,26 @@ public actor SecureDatabase {
 
         let count: Int
         do {
-            count = try perform { connection in
-                try connection.transaction {
-                    let rows = try connection.query("SELECT type_tag, id_tag, payload FROM records")
-                    let rewritten = try rows.map { row -> [SQLiteConnection.Value] in
-                        let record = try self.open(row[2], typeTag: row[0], idTag: row[1], state: old)
-                        return try self.row(type: record.type, id: record.id, json: record.json, state: new)
-                    }
-                    try connection.execute("DELETE FROM records")
-                    for values in rewritten {
-                        try connection.execute("INSERT INTO records (type_tag, id_tag, payload) VALUES (?, ?, ?)", values)
-                    }
-                    try connection.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('keyVersion', ?)", [.blob(Data(String(version).utf8))])
-                    return rows.count
+            // Inline rather than `connection.transaction { }`: Swift 6.1 rejects passing the connection into a closure that also uses self.
+            guard let connection else { throw SecureVaultError.databaseFailure(reason: "database is closed") }
+            try connection.execute("BEGIN IMMEDIATE")
+            do {
+                let rows = try connection.query("SELECT type_tag, id_tag, payload FROM records")
+                var rewritten: [[SQLiteConnection.Value]] = []
+                for row in rows {
+                    let record = try open(row[2], typeTag: row[0], idTag: row[1], state: old)
+                    rewritten.append(try self.row(type: record.type, id: record.id, json: record.json, state: new))
                 }
+                try connection.execute("DELETE FROM records")
+                for values in rewritten {
+                    try connection.execute("INSERT INTO records (type_tag, id_tag, payload) VALUES (?, ?, ?)", values)
+                }
+                try connection.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('keyVersion', ?)", [.blob(Data(String(version).utf8))])
+                try connection.execute("COMMIT")
+                count = rows.count
+            } catch {
+                try? connection.execute("ROLLBACK")
+                throw error
             }
         } catch {
             try? await keys.destroy(id, version: version)

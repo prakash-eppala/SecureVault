@@ -1,0 +1,16 @@
+# RepoGuard policy for SecureVault. Anything not listed keeps RepoGuard's default.
+version: 1
+
+# One approval on every permanent branch, and CI (the `ci` job) before anything lands.
+protection:
+  develop:
+    required_approvals: 1
+    require_status_checks: true
+    status_checks: [ci]
+  staging:
+    required_approvals: 1
+  main:
+    required_approvals: 1
+
+rulesets:
+  status_checks: [ci]
